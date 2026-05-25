@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}分析 - 不動産トラッカー{% endblock %}
+
+{% block content %}
+{% set active_page = 'analysis' %}
+
+<h1 class="text-2xl font-bold text-gray-900 mb-6">市場分析</h1>
+
+<!-- KPIカード -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="kpi-cards">
+  <div class="bg-white rounded-lg shadow p-4 text-center">
+    <div class="text-xs text-gray-500 mb-1">追跡中物件数</div>
+    <div class="text-2xl font-bold text-gray-900" id="kpi-total">-</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-4 text-center">
+    <div class="text-xs text-gray-500 mb-1">平均掲載日数</div>
+    <div class="text-2xl font-bold text-blue-600" id="kpi-avg-days">-</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-4 text-center">
+    <div class="text-xs text-gray-500 mb-1">直近7日の終了物件</div>
+    <div class="text-2xl font-bold text-red-500" id="kpi-recent">-</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-4 text-center">
+    <div class="text-xs text-gray-500 mb-1">最終スクレイピング</div>
+    <div class="text-sm font-medium text-gray-600" id="kpi-last-run">-</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+  <!-- 掲載日数分布 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">掲載日数の分布（終了物件）</h2>
+    <p class="text-xs text-gray-400 mb-3">早く売れた物件はどのくらいか</p>
+    <canvas id="daysChart" height="220"></canvas>
+  </div>
+
+  <!-- サイト別 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">サイト別物件数</h2>
+    <canvas id="siteChart" height="220"></canvas>
+  </div>
+
+  <!-- 都道府県別 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">都道府県別物件数（上位10）</h2>
+    <canvas id="prefChart" height="220"></canvas>
+  </div>
+
+  <!-- 物件種別 -->
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">物件種別</h2>
+    <canvas id="typeChart" height="220"></canvas>
+  </div>
+</div>
+
+<!-- 早く売れた物件の特徴 -->
+<div class="bg-white rounded-lg shadow p-6 mb-6">
+  <h2 class="text-lg font-semibold text-gray-800 mb-2">早く売れた物件（〜7日で掲載終了）</h2>
+  <p class="text-xs text-gray-400 mb-4">初回確認から7日以内に掲載が消えた物件の一覧</p>
+  <div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-2 text-left text-xs text-gray-500">サイト</th>
+          <th class="px-4 py-2 text-left text-xs text-gray-500">物件名</th>
+          <th class="px-4 py-2 text-left text-xs text-gray-500">所在地</th>
+          <th class="px-4 py-2 text-left text-xs text-gray-500">種別</th>
+          <th class="px-4 py-2 text-right text-xs text-gray-500">価格</th>
+          <th class="px-4 py-2 text-right text-xs text-gray-500">利回り</th>
+          <th class="px-4 py-2 text-right text-xs text-gray-500">掲載日数</th>
+        </tr>
+      </thead>
+      <tbody id="quick-sold-tbody" class="divide-y divide-gray-100">
+        <tr><td colspan="7" class="text-center py-6 text-gray-400">読み込み中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/api/stats').then(r => r.json()).then(data => {
+  document.getElementById('kpi-total').textContent = (data.total || 0).toLocaleString();
+  document.getElementById('kpi-avg-days').textContent = data.avg_days_listed != null ? data.avg_days_listed + '日' : '-';
+  document.getElementById('kpi-recent').textContent = data.recent_delisted_7d || 0;
+  document.getElementById('kpi-last-run').textContent = data.last_run_at ? formatDate(data.last_run_at) : '-';
+
+  // 掲載日数
+  new Chart(document.getElementById('daysChart'), {
+    type: 'bar',
+    data: {
+      labels: data.days_distribution.map(d => d.label),
+      datasets: [{ label: '物件数', data: data.days_distribution.map(d => d.count), backgroundColor: ['#34d399','#60a5fa','#fbbf24','#f87171','#a78bfa'] }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+
+  // サイト別
+  new Chart(document.getElementById('siteChart'), {
+    type: 'doughnut',
+    data: {
+      labels: data.by_site.map(d => d.name),
+      datasets: [{ data: data.by_site.map(d => d.count), backgroundColor: ['#f97316','#3b82f6','#22c55e','#a855f7'] }]
+    },
+  });
+
+  // 都道府県
+  new Chart(document.getElementById('prefChart'), {
+    type: 'bar',
+    data: {
+      labels: data.by_prefecture.map(d => d.prefecture),
+      datasets: [{ label: '物件数', data: data.by_prefecture.map(d => d.count), backgroundColor: '#60a5fa' }]
+    },
+    options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+
+  // 物件種別
+  new Chart(document.getElementById('typeChart'), {
+    type: 'doughnut',
+    data: {
+      labels: data.by_type.map(d => d.type),
+      datasets: [{ data: data.by_type.map(d => d.count), backgroundColor: ['#34d399','#f97316','#60a5fa','#fbbf24','#a78bfa','#f87171'] }]
+    },
+  });
+});
+
+// 早く売れた物件
+fetch('/api/properties?status=delisted&max_yield=999&sort=days_listed&order=asc&per_page=20')
+  .then(r => r.json()).then(data => {
+    const quick = data.items.filter(p => p.days_listed != null && p.days_listed <= 7);
+    const tbody = document.getElementById('quick-sold-tbody');
+    if (!quick.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-400">該当物件なし</td></tr>';
+      return;
+    }
+    tbody.innerHTML = quick.map(p => `
+      <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/properties/${p.id}'">
+        <td class="px-4 py-2"><span class="text-xs px-1.5 py-0.5 rounded ${p.site_name === '楽待' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}">${p.site_name}</span></td>
+        <td class="px-4 py-2 max-w-xs"><div class="truncate text-blue-700">${p.title || '-'}</div></td>
+        <td class="px-4 py-2 text-gray-600">${p.prefecture || p.location || '-'}</td>
+        <td class="px-4 py-2 text-gray-600">${p.property_type || '-'}</td>
+        <td class="px-4 py-2 text-right font-medium">${p.price ? formatPrice(p.price) : (p.price_text || '-')}</td>
+        <td class="px-4 py-2 text-right ${p.gross_yield >= 10 ? 'text-green-600 font-semibold' : 'text-gray-700'}">${p.gross_yield ? p.gross_yield.toFixed(2) + '%' : '-'}</td>
+        <td class="px-4 py-2 text-right font-bold text-green-600">${p.days_listed}日</td>
+      </tr>
+    `).join('');
+  });
+</script>
+{% endblock %}

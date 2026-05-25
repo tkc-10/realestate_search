@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}物件一覧 - 不動産トラッカー{% endblock %}
+
+{% block content %}
+{% set active_page = 'properties' %}
+
+<h1 class="text-2xl font-bold text-gray-900 mb-6">物件一覧</h1>
+
+<!-- フィルター -->
+<div class="bg-white rounded-lg shadow p-4 mb-6">
+  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3" id="filterForm">
+    <select id="f-site" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="">全サイト</option>
+      {% for site in sites %}
+      <option value="{{ site.id }}">{{ site.display_name }}</option>
+      {% endfor %}
+    </select>
+    <select id="f-status" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="">全ステータス</option>
+      <option value="active">掲載中</option>
+      <option value="delisted">掲載終了</option>
+    </select>
+    <select id="f-prefecture" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="">都道府県（全て）</option>
+      {% for pref in prefectures %}
+      <option value="{{ pref }}">{{ pref }}</option>
+      {% endfor %}
+    </select>
+    <select id="f-type" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="">物件種別（全て）</option>
+      {% for t in property_types %}
+      <option value="{{ t }}">{{ t }}</option>
+      {% endfor %}
+    </select>
+    <input type="number" id="f-min-yield" placeholder="利回り下限%" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+    <input type="number" id="f-max-yield" placeholder="利回り上限%" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+    <input type="number" id="f-min-price" placeholder="価格下限(万円)" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+    <input type="number" id="f-max-price" placeholder="価格上限(万円)" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+    <select id="f-sort" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="first_seen_at">初回確認日順</option>
+      <option value="last_seen_at">最終確認日順</option>
+      <option value="gross_yield">利回り順</option>
+      <option value="price">価格順</option>
+      <option value="days_listed">掲載日数順</option>
+    </select>
+    <select id="f-order" class="border border-gray-300 rounded-md px-3 py-2 text-sm">
+      <option value="desc">降順</option>
+      <option value="asc">昇順</option>
+    </select>
+    <button onclick="loadProperties(1)" class="col-span-2 md:col-span-1 bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-4 rounded-md">検索</button>
+  </div>
+</div>
+
+<!-- 件数と結果 -->
+<div class="bg-white rounded-lg shadow">
+  <div class="px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+    <div class="text-sm text-gray-600"><span id="total-count">-</span> 件</div>
+    <div class="flex gap-2 text-sm text-gray-500">
+      <button onclick="prevPage()" id="btn-prev" class="px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">←</button>
+      <span id="page-info">1</span>
+      <button onclick="nextPage()" id="btn-next" class="px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-40">→</button>
+    </div>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200 text-sm">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">サイト</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">物件名</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">所在地</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">種別</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">価格</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">利回り</th>
+          <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">ステータス</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">掲載日数</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">初回確認</th>
+        </tr>
+      </thead>
+      <tbody id="prop-tbody" class="divide-y divide-gray-100">
+        <tr><td colspan="9" class="text-center py-8 text-gray-400">読み込み中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let totalCount = 0;
+const PER_PAGE = 50;
+
+function getFilters() {
+  return {
+    site_id: document.getElementById('f-site').value,
+    status: document.getElementById('f-status').value,
+    prefecture: document.getElementById('f-prefecture').value,
+    property_type: document.getElementById('f-type').value,
+    min_yield: document.getElementById('f-min-yield').value,
+    max_yield: document.getElementById('f-max-yield').value,
+    min_price: document.getElementById('f-min-price').value,
+    max_price: document.getElementById('f-max-price').value,
+    sort: document.getElementById('f-sort').value,
+    order: document.getElementById('f-order').value,
+  };
+}
+
+function buildQuery(page) {
+  const f = getFilters();
+  const params = new URLSearchParams();
+  Object.entries(f).forEach(([k,v]) => { if (v) params.set(k, v); });
+  params.set('page', page);
+  params.set('per_page', PER_PAGE);
+  return params.toString();
+}
+
+function loadProperties(page) {
+  currentPage = page;
+  const tbody = document.getElementById('prop-tbody');
+  tbody.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-gray-400">読み込み中...</td></tr>';
+
+  fetch('/api/properties?' + buildQuery(page))
+    .then(r => r.json())
+    .then(data => {
+      totalCount = data.total;
+      document.getElementById('total-count').textContent = totalCount.toLocaleString();
+      document.getElementById('page-info').textContent = `${page} / ${Math.ceil(totalCount / PER_PAGE) || 1}`;
+      document.getElementById('btn-prev').disabled = page <= 1;
+      document.getElementById('btn-next').disabled = page >= Math.ceil(totalCount / PER_PAGE);
+
+      if (!data.items.length) {
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-gray-400">物件が見つかりません</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.items.map(p => `
+        <tr class="hover:bg-gray-50 cursor-pointer" onclick="location.href='/properties/${p.id}'">
+          <td class="px-4 py-3 whitespace-nowrap">
+            <span class="text-xs px-1.5 py-0.5 rounded ${p.site_name === '楽待' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}">${p.site_name}</span>
+          </td>
+          <td class="px-4 py-3 max-w-xs">
+            <div class="truncate text-blue-700 font-medium">${p.title || '(タイトルなし)'}</div>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap text-gray-600">${p.prefecture || p.location || '-'}</td>
+          <td class="px-4 py-3 whitespace-nowrap text-gray-600">${p.property_type || '-'}</td>
+          <td class="px-4 py-3 whitespace-nowrap text-right font-medium">${p.price ? formatPrice(p.price) : (p.price_text || '-')}</td>
+          <td class="px-4 py-3 whitespace-nowrap text-right ${p.gross_yield >= 10 ? 'text-green-600 font-semibold' : 'text-gray-700'}">${p.gross_yield ? p.gross_yield.toFixed(2) + '%' : '-'}</td>
+          <td class="px-4 py-3 whitespace-nowrap text-center">
+            <span class="${p.status === 'active' ? 'badge-active' : 'badge-delisted'}">${p.status === 'active' ? '掲載中' : '終了'}</span>
+          </td>
+          <td class="px-4 py-3 whitespace-nowrap text-right text-gray-600">${p.days_listed != null ? p.days_listed + '日' : '-'}</td>
+          <td class="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">${formatDate(p.first_seen_at)}</td>
+        </tr>
+      `).join('');
+    });
+}
+
+function prevPage() { if (currentPage > 1) loadProperties(currentPage - 1); }
+function nextPage() { if (currentPage < Math.ceil(totalCount / PER_PAGE)) loadProperties(currentPage + 1); }
+
+// エンターキーで検索
+document.querySelectorAll('#filterForm input, #filterForm select').forEach(el => {
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') loadProperties(1); });
+});
+
+loadProperties(1);
+</script>
+{% endblock %}

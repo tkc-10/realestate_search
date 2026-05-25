@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}不動産投資トラッカー{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .nav-link { @apply text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium; }
+    .nav-link.active { @apply bg-gray-900 text-white; }
+    .badge-active { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800; }
+    .badge-delisted { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800; }
+    .badge-running { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800; }
+    .badge-success { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800; }
+    .badge-error { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- ナビゲーション -->
+  <nav class="bg-gray-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center">
+          <a href="/" class="text-white font-bold text-lg mr-8">🏠 不動産トラッカー</a>
+          <div class="flex space-x-1">
+            <a href="/" class="nav-link {% if active_page == 'dashboard' %}active{% endif %}">ダッシュボード</a>
+            <a href="/searches" class="nav-link {% if active_page == 'searches' %}active{% endif %}">検索条件</a>
+            <a href="/properties" class="nav-link {% if active_page == 'properties' %}active{% endif %}">物件一覧</a>
+            <a href="/analysis" class="nav-link {% if active_page == 'analysis' %}active{% endif %}">分析</a>
+            <a href="/runs" class="nav-link {% if active_page == 'runs' %}active{% endif %}">実行ログ</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- コンテンツ -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    function formatDate(isoStr) {
+      if (!isoStr) return '-';
+      const d = new Date(isoStr + 'Z');
+      return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+    function formatPrice(man) {
+      if (!man) return '-';
+      if (man >= 10000) return `${(man / 10000).toFixed(man % 10000 === 0 ? 0 : 1)}億円`;
+      return `${man.toLocaleString()}万円`;
+    }
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% block title %}{{ prop.title or '物件詳細' }} - 不動産トラッカー{% endblock %}
+
+{% block content %}
+{% set active_page = 'properties' %}
+
+<div class="mb-4">
+  <a href="/properties" class="text-sm text-blue-600 hover:text-blue-800">← 物件一覧に戻る</a>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <!-- メイン情報 -->
+  <div class="lg:col-span-2 space-y-6">
+    <div class="bg-white rounded-lg shadow p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-xs px-2 py-0.5 rounded-full {% if prop.site.name == 'rakumachi' %}bg-orange-100 text-orange-700{% else %}bg-blue-100 text-blue-700{% endif %}">{{ prop.site.display_name }}</span>
+            <span class="{% if prop.status == 'active' %}badge-active{% else %}badge-delisted{% endif %}">{% if prop.status == 'active' %}掲載中{% else %}掲載終了{% endif %}</span>
+          </div>
+          <h1 class="text-xl font-bold text-gray-900">{{ prop.title or '(タイトルなし)' }}</h1>
+        </div>
+        <a href="{{ prop.url }}" target="_blank" rel="noopener" class="text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md flex-shrink-0">元サイトで見る →</a>
+      </div>
+
+      {% if prop.image_url %}
+      <img src="{{ prop.image_url }}" alt="{{ prop.title }}" class="w-full max-h-64 object-cover rounded-lg mb-4">
+      {% endif %}
+
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {% macro info_item(label, value) %}
+        <div class="bg-gray-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">{{ label }}</div>
+          <div class="font-semibold text-gray-900">{{ value or '-' }}</div>
+        </div>
+        {% endmacro %}
+
+        <div class="bg-orange-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">価格</div>
+          <div class="font-bold text-xl text-orange-700">{{ prop.price_text or '-' }}</div>
+        </div>
+        <div class="bg-green-50 rounded-lg p-3">
+          <div class="text-xs text-gray-500 mb-1">表面利回り</div>
+          <div class="font-bold text-xl text-green-700">{% if prop.gross_yield %}{{ '%.2f' % prop.gross_yield }}%{% else %}-{% endif %}</div>
+        </div>
+        {{ info_item('所在地', prop.location) }}
+        {{ info_item('物件種別', prop.property_type) }}
+        {{ info_item('築年数', ('築' ~ prop.building_age ~ '年') if prop.building_age else None) }}
+        {{ info_item('建物面積', (('%.1f' % prop.building_area) ~ 'm²') if prop.building_area else None) }}
+        {{ info_item('土地面積', (('%.1f' % prop.land_area) ~ 'm²') if prop.land_area else None) }}
+        {{ info_item('総戸数', (prop.total_units ~ '戸') if prop.total_units else None) }}
+        {{ info_item('最寄り駅', prop.station) }}
+      </div>
+
+      {% if prop.description %}
+      <div class="mt-4 text-sm text-gray-600 whitespace-pre-wrap">{{ prop.description }}</div>
+      {% endif %}
+    </div>
+
+    <!-- 価格・利回り履歴 -->
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">価格・利回りの履歴</h2>
+      <canvas id="historyChart" height="120"></canvas>
+    </div>
+  </div>
+
+  <!-- サイドバー -->
+  <div class="space-y-6">
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">掲載状況</h2>
+      <div class="space-y-3 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">初回確認</span>
+          <span class="font-medium">{{ prop.first_seen_at.strftime('%Y/%m/%d') if prop.first_seen_at else '-' }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">最終確認</span>
+          <span class="font-medium">{{ prop.last_seen_at.strftime('%Y/%m/%d') if prop.last_seen_at else '-' }}</span>
+        </div>
+        {% if prop.status == 'delisted' %}
+        <div class="flex justify-between">
+          <span class="text-gray-500">掲載終了日</span>
+          <span class="font-medium text-red-600">{{ prop.delisted_at.strftime('%Y/%m/%d') if prop.delisted_at else '-' }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-gray-500">掲載日数</span>
+          <span class="font-bold text-lg">{{ prop.days_listed }}日</span>
+        </div>
+        {% else %}
+        <div class="flex justify-between">
+          <span class="text-gray-500">掲載経過日数</span>
+          {% if prop.first_seen_at %}
+          {% set elapsed = (prop.last_seen_at - prop.first_seen_at).days if prop.last_seen_at else 0 %}
+          <span class="font-bold text-lg">{{ elapsed }}日〜</span>
+          {% else %}
+          <span>-</span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 変更履歴テーブル -->
+    <div class="bg-white rounded-lg shadow p-6">
+      <h2 class="text-lg font-semibold text-gray-800 mb-4">変更履歴</h2>
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-xs">
+          <thead>
+            <tr class="text-gray-500">
+              <th class="text-left pb-2">日時</th>
+              <th class="text-right pb-2">価格</th>
+              <th class="text-right pb-2">利回り</th>
+              <th class="text-center pb-2">状態</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100" id="history-tbody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/api/properties/{{ prop.id }}').then(r => r.json()).then(data => {
+  // 変更履歴テーブル
+  const tbody = document.getElementById('history-tbody');
+  const hist = data.history || [];
+  if (!hist.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-gray-400">履歴なし</td></tr>';
+  } else {
+    tbody.innerHTML = [...hist].reverse().map(h => `
+      <tr>
+        <td class="py-1.5 text-gray-500">${formatDate(h.checked_at)}</td>
+        <td class="py-1.5 text-right">${h.price ? formatPrice(h.price) : '-'}</td>
+        <td class="py-1.5 text-right">${h.gross_yield != null ? h.gross_yield.toFixed(2) + '%' : '-'}</td>
+        <td class="py-1.5 text-center">
+          <span class="${h.status === 'active' ? 'badge-active' : 'badge-delisted'}">${h.status === 'active' ? '掲載中' : '終了'}</span>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // チャート
+  const prices = hist.filter(h => h.price).map(h => ({ x: h.checked_at, y: h.price }));
+  const yields = hist.filter(h => h.gross_yield != null).map(h => ({ x: h.checked_at, y: h.gross_yield }));
+
+  const ctx = document.getElementById('historyChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: '価格(万円)',
+          data: prices,
+          borderColor: '#f97316',
+          yAxisID: 'y',
+          tension: 0.1,
+        },
+        {
+          label: '利回り(%)',
+          data: yields,
+          borderColor: '#22c55e',
+          yAxisID: 'y1',
+          tension: 0.1,
+        }
+      ]
+    },
+    options: {
+      parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+      scales: {
+        x: { type: 'time', time: { unit: 'day', displayFormats: { day: 'MM/DD' } } },
+        y: { position: 'left', title: { display: true, text: '万円' } },
+        y1: { position: 'right', title: { display: true, text: '%' }, grid: { drawOnChartArea: false } },
+      }
+    }
+  });
+});
+</script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+{% endblock %}

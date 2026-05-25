@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード - 不動産トラッカー{% endblock %}
+
+{% block content %}
+{% set active_page = 'dashboard' %}
+
+<h1 class="text-2xl font-bold text-gray-900 mb-6">ダッシュボード</h1>
+
+<!-- サマリーカード -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+  <div class="bg-white rounded-lg shadow p-6">
+    <div class="text-sm font-medium text-gray-500">総物件数</div>
+    <div class="mt-2 text-3xl font-bold text-gray-900">{{ total }}</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-6">
+    <div class="text-sm font-medium text-gray-500">掲載中</div>
+    <div class="mt-2 text-3xl font-bold text-green-600">{{ active }}</div>
+  </div>
+  <div class="bg-white rounded-lg shadow p-6">
+    <div class="text-sm font-medium text-gray-500">掲載終了（売却/削除）</div>
+    <div class="mt-2 text-3xl font-bold text-red-500">{{ delisted }}</div>
+  </div>
+</div>
+
+<!-- 統計（API取得） -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">掲載日数の分布（終了物件）</h2>
+    <canvas id="daysChart" height="200"></canvas>
+  </div>
+  <div class="bg-white rounded-lg shadow p-6">
+    <h2 class="text-lg font-semibold text-gray-800 mb-4">都道府県別物件数（上位10件）</h2>
+    <canvas id="prefChart" height="200"></canvas>
+  </div>
+</div>
+
+<!-- 最近の実行 -->
+<div class="bg-white rounded-lg shadow">
+  <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+    <h2 class="text-lg font-semibold text-gray-800">最近のスクレイピング</h2>
+    <a href="/runs" class="text-sm text-blue-600 hover:text-blue-800">すべて見る →</a>
+  </div>
+  <div class="divide-y divide-gray-100">
+    {% for run in recent_runs %}
+    <div class="px-6 py-4 flex items-center justify-between">
+      <div>
+        <div class="font-medium text-gray-900">
+          {{ run.search_config.name if run.search_config else '-' }}
+          <span class="text-xs text-gray-400 ml-1">({{ run.search_config.site.display_name if run.search_config else '' }})</span>
+        </div>
+        <div class="text-xs text-gray-500">{{ run.started_at.strftime('%Y/%m/%d %H:%M') if run.started_at else '-' }}</div>
+      </div>
+      <div class="flex items-center gap-4 text-sm text-gray-600">
+        <span>発見: <b>{{ run.properties_found }}</b></span>
+        <span class="text-green-600">新規: <b>{{ run.properties_new }}</b></span>
+        <span class="text-red-500">終了: <b>{{ run.properties_delisted }}</b></span>
+        <span class="badge-{{ run.status }}">{{ run.status }}</span>
+      </div>
+    </div>
+    {% else %}
+    <div class="px-6 py-8 text-center text-gray-400">
+      まだ実行履歴がありません。<a href="/searches" class="text-blue-600">検索条件を追加</a>してください。
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/api/stats').then(r => r.json()).then(data => {
+  // 掲載日数チャート
+  const daysCtx = document.getElementById('daysChart').getContext('2d');
+  new Chart(daysCtx, {
+    type: 'bar',
+    data: {
+      labels: data.days_distribution.map(d => d.label),
+      datasets: [{
+        label: '物件数',
+        data: data.days_distribution.map(d => d.count),
+        backgroundColor: ['#34d399','#60a5fa','#fbbf24','#f87171','#a78bfa'],
+      }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+
+  // 都道府県チャート
+  const prefCtx = document.getElementById('prefChart').getContext('2d');
+  new Chart(prefCtx, {
+    type: 'bar',
+    data: {
+      labels: data.by_prefecture.map(d => d.prefecture),
+      datasets: [{
+        label: '物件数',
+        data: data.by_prefecture.map(d => d.count),
+        backgroundColor: '#60a5fa',
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+});
+</script>
+{% endblock %}
