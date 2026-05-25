@@ -68,8 +68,7 @@ async def dashboard(request: Request, db: Session = Depends(get_db)):
         .all()
     )
     sites = db.query(Site).all()
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "total": total,
         "active": active,
         "delisted": delisted,
@@ -83,8 +82,7 @@ async def searches_page(request: Request, db: Session = Depends(get_db)):
     configs = db.query(SearchConfig).order_by(SearchConfig.id).all()
     sites = db.query(Site).all()
     running = request.query_params.get("running")
-    return templates.TemplateResponse("searches.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "searches.html", {
         "configs": configs,
         "sites": sites,
         "running": running,
@@ -108,8 +106,7 @@ async def properties_page(request: Request, db: Session = Depends(get_db)):
         .order_by(Property.property_type)
         .all()
     )
-    return templates.TemplateResponse("properties.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "properties.html", {
         "sites": sites,
         "prefectures": [r[0] for r in prefectures],
         "property_types": [r[0] for r in property_types],
@@ -121,8 +118,7 @@ async def property_detail_page(prop_id: int, request: Request, db: Session = Dep
     prop = db.query(Property).get(prop_id)
     if not prop:
         return RedirectResponse("/properties")
-    return templates.TemplateResponse("property_detail.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "property_detail.html", {
         "prop": prop,
     })
 
@@ -130,8 +126,7 @@ async def property_detail_page(prop_id: int, request: Request, db: Session = Dep
 @app.get("/analysis", response_class=HTMLResponse)
 async def analysis_page(request: Request, db: Session = Depends(get_db)):
     sites = db.query(Site).all()
-    return templates.TemplateResponse("analysis.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "analysis.html", {
         "sites": sites,
     })
 
@@ -139,7 +134,6 @@ async def analysis_page(request: Request, db: Session = Depends(get_db)):
 @app.get("/runs", response_class=HTMLResponse)
 async def runs_page(request: Request, db: Session = Depends(get_db)):
     configs = db.query(SearchConfig).order_by(SearchConfig.id).all()
-    return templates.TemplateResponse("scrape_runs.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "scrape_runs.html", {
         "configs": configs,
     })
