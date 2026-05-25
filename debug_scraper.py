@@ -134,3 +134,12 @@ def debug_scrape(url: str, site: str = "rakumachi"):
 
         input("\n\n[Enter]でブラウザを閉じます...")
         browser.close()
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    url = sys.argv[1]
+    site = sys.argv[2] if len(sys.argv) > 2 else "rakumachi"
+    debug_scrape(url, site)
