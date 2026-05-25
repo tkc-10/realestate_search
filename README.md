@@ -15,12 +15,18 @@
 
 ```bash
 # 1. 依存パッケージをインストール
+# Mac/Linux
+pip3 install -r requirements.txt
+# Windows
 pip install -r requirements.txt
 
 # 2. Playwright用ブラウザをインストール
 playwright install chromium
 
 # 3. 起動
+# Mac/Linux
+python3 run.py
+# Windows
 python run.py
 ```
 

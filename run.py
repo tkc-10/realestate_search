@@ -2,9 +2,9 @@
 起動スクリプト
 
 使い方:
-  1. pip install -r requirements.txt
+  1. pip3 install -r requirements.txt   (Macは pip3、Windowsは pip)
   2. playwright install chromium
-  3. python run.py
+  3. python3 run.py   (Macは python3、Windowsは python)
 
 ブラウザが http://localhost:8000 で自動的に開きます。
 """
