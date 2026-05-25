@@ -1,12 +1,23 @@
 """
 楽待 (rakumachi.jp) スクレイパー
 
-検索URL例:
-  一棟アパート(東京): https://www.rakumachi.jp/syuuekibukken/area/division/?ken=13&division=1
-  区分マンション:      https://www.rakumachi.jp/syuuekibukken/area/division/?ken=13&division=4
+物件カード構造:
+  div.propertyBlock
+    p.propertyBlock__dimension  → 物件種別 (例: 戸建賃貸、1棟マンション)
+    p.propertyBlock__name       → 物件名(所在地)
+    p.propertyBlock__update     → 登録日
+    a.propertyBlock__content    → 物件詳細リンク (href に /dimXXXX/YYYYYYY/show.html)
 
-物件種別コード (divisionパラメータ):
-  1=一棟アパート, 2=一棟マンション, 3=一棟ビル, 4=区分マンション, 5=戸建て, 6=土地, 7=その他
+カードテキストのラベル→値パターン:
+  価格 → 650万円
+  利回り → 11.07%
+  所在地 → 大阪府堺市...
+  交通 → 南海高野線 北野田駅 徒歩27分
+  築年月 → 1979年07月（築47年）
+  総戸数 → 14戸
+  面積 → 建物76.95㎡ / 土地 61.03㎡
+
+ページネーション: ?page=2, ?page=3 ...
 """
 import re
 import time
@@ -21,14 +32,19 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.rakumachi.jp"
 
-PROPERTY_TYPE_MAP = {
-    "1": "一棟アパート",
-    "2": "一棟マンション",
-    "3": "一棟ビル",
-    "4": "区分マンション",
-    "5": "戸建て",
-    "6": "土地",
-    "7": "その他",
+DIM_TYPE_MAP = {
+    "1001": "一棟マンション",
+    "1002": "一棟アパート",
+    "1003": "一棟ビル",
+    "1004": "戸建賃貸",
+    "2001": "区分マンション",
+    "2002": "区分所有ビル",
+    "3001": "土地",
+}
+
+KNOWN_LABELS = {
+    "価格", "利回り", "所在地", "交通", "築年月",
+    "総戸数", "建物構造", "面積", "階数",
 }
 
 
@@ -36,9 +52,9 @@ def _add_page_param(url: str, page: int) -> str:
     parsed = urlparse(url)
     params = parse_qs(parsed.query, keep_blank_values=True)
     if page > 1:
-        params["p"] = [str(page)]
-    elif "p" in params:
-        del params["p"]
+        params["page"] = [str(page)]
+    elif "page" in params:
+        del params["page"]
     new_query = urlencode({k: v[0] for k, v in params.items()})
     return urlunparse(parsed._replace(query=new_query))
 
@@ -55,9 +71,11 @@ class RakumachiScraper(BaseScraper):
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/120.0.0.0 Safari/537.36",
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
                 locale="ja-JP",
             )
             page = context.new_page()
@@ -65,25 +83,16 @@ class RakumachiScraper(BaseScraper):
                 page.goto(target_url, wait_until="networkidle", timeout=30000)
                 time.sleep(2)
 
-                # 物件カードを取得 (セレクタは実際のHTML構造に合わせて調整が必要)
-                cards = page.query_selector_all("ul.bukken-list > li, .property-list-item, li.js-bukken-cassette")
-                if not cards:
-                    # 汎用フォールバック
-                    cards = page.query_selector_all("[class*='bukken']")
-
+                cards = page.query_selector_all("div.propertyBlock")
                 logger.info(f"[楽待] 物件カード数: {len(cards)}")
 
                 for card in cards:
                     try:
-                        prop = _parse_card(card, page)
+                        prop = _parse_card(card)
                         if prop:
                             properties.append(prop)
                     except Exception as e:
                         logger.warning(f"[楽待] カードパースエラー: {e}")
-
-                # 次ページが存在しない場合は空リストを返す
-                if page_num > 1 and not properties:
-                    pass
 
             except PlaywrightTimeout:
                 logger.error(f"[楽待] タイムアウト: {target_url}")
@@ -95,85 +104,117 @@ class RakumachiScraper(BaseScraper):
         return properties
 
 
-def _parse_card(card, page) -> PropertyData | None:
-    """物件カードからデータを抽出"""
-    # リンク取得
-    link_el = card.query_selector("a[href*='/syuuekibukken/']")
-    if not link_el:
-        link_el = card.query_selector("a")
+def _parse_card(card) -> PropertyData | None:
+    # 物件リンク取得
+    link_el = card.query_selector("a.propertyBlock__content")
     if not link_el:
         return None
 
     href = link_el.get_attribute("href") or ""
-    if not href:
+    m = re.search(r"/dim(\d+)/(\d+)/show\.html", href)
+    if not m:
         return None
-    url = href if href.startswith("http") else urljoin(BASE_URL, href)
 
-    # 物件IDをURLから抽出
-    m = re.search(r"[?&]id=(\d+)", url) or re.search(r"/(\d+)/?$", url)
-    external_id = m.group(1) if m else url
-
-    # タイトル
-    title_el = (
-        card.query_selector(".bukken-cassette-title, .property-title, h3, h2")
-    )
-    title = title_el.inner_text().strip() if title_el else None
-
-    # 価格
-    price_el = card.query_selector(
-        ".price, .bukken-price, [class*='price'], .cassette-price"
-    )
-    price_text = price_el.inner_text().strip() if price_el else ""
-    price = BaseScraper.parse_price(price_text)
-
-    # 利回り
-    yield_el = card.query_selector(
-        ".rimawari, .yield, [class*='yield'], [class*='rimawari']"
-    )
-    yield_text = yield_el.inner_text().strip() if yield_el else ""
-    gross_yield = BaseScraper.parse_yield(yield_text)
-
-    # 所在地
-    location_el = card.query_selector(
-        ".address, .location, [class*='address'], [class*='location']"
-    )
-    location = location_el.inner_text().strip() if location_el else None
-    prefecture = _extract_prefecture(location or "")
+    dim_code = m.group(1)
+    external_id = m.group(2)
+    prop_url = href if href.startswith("http") else urljoin(BASE_URL, href)
 
     # 物件種別
-    type_el = card.query_selector("[class*='type'], [class*='bukken-type']")
-    property_type = type_el.inner_text().strip() if type_el else None
+    type_el = card.query_selector("p.propertyBlock__dimension")
+    property_type = type_el.inner_text().strip() if type_el else DIM_TYPE_MAP.get(dim_code)
 
-    # 築年数
-    age_el = card.query_selector("[class*='age'], [class*='chikunen']")
-    age_text = age_el.inner_text().strip() if age_el else ""
-    building_age = BaseScraper.parse_age(age_text)
+    # 物件名
+    name_el = card.query_selector("p.propertyBlock__name")
+    name = name_el.inner_text().strip() if name_el else None
+    title = f"{property_type} {name}".strip() if (property_type and name) else (name or property_type)
 
-    # 面積
-    area_el = card.query_selector("[class*='area'], [class*='menseki']")
-    area_text = area_el.inner_text().strip() if area_el else ""
-    building_area = BaseScraper.parse_area(area_text)
+    # カードテキストをラベル→値パターンで解析
+    card_text = card.inner_text()
+    lines = [l.strip() for l in card_text.split("\n") if l.strip()]
+
+    price_text = _get_label_value(lines, "価格")
+    price = BaseScraper.parse_price(price_text or "")
+
+    yield_text = _get_label_value(lines, "利回り")
+    gross_yield = BaseScraper.parse_yield(yield_text or "")
+
+    location = _get_label_value(lines, "所在地")
+    prefecture = _extract_prefecture(location or "")
+
+    station = _get_label_value(lines, "交通")
+
+    age_text = _get_label_value(lines, "築年月")  # 例: "1979年07月（築47年）"
+    building_age = _parse_building_age(age_text or "")
+
+    units_text = _get_label_value(lines, "総戸数")  # 例: "14戸"
+    total_units = None
+    if units_text:
+        mu = re.search(r"(\d+)", units_text)
+        if mu:
+            total_units = int(mu.group(1))
+
+    area_text = _get_label_value(lines, "面積")  # 例: "建物266.61㎡ / 土地 215.92㎡"
+    building_area = _parse_building_area(area_text or "")
+    land_area = _parse_land_area(area_text or "")
 
     # 画像
     img_el = card.query_selector("img")
-    image_url = img_el.get_attribute("src") if img_el else None
-    if image_url and image_url.startswith("//"):
-        image_url = "https:" + image_url
+    image_url = None
+    if img_el:
+        src = img_el.get_attribute("src") or ""
+        if src.startswith("//"):
+            src = "https:" + src
+        image_url = src or None
 
     return PropertyData(
         external_id=external_id,
-        url=url,
+        url=prop_url,
         title=title,
         price=price,
-        price_text=price_text or None,
+        price_text=price_text,
         location=location,
         prefecture=prefecture or None,
         property_type=property_type,
         gross_yield=gross_yield,
         building_age=building_age,
         building_area=building_area,
+        land_area=land_area,
+        total_units=total_units,
+        station=station,
         image_url=image_url,
     )
+
+
+def _get_label_value(lines: list[str], label: str) -> str | None:
+    """行リストからラベルの次の行を値として取得"""
+    for i, line in enumerate(lines):
+        if line == label and i + 1 < len(lines):
+            next_line = lines[i + 1]
+            if next_line not in KNOWN_LABELS:
+                return next_line
+    return None
+
+
+def _parse_building_age(text: str) -> int | None:
+    # "1979年07月（築47年）" → 47
+    m = re.search(r"築(\d+)年", text)
+    return int(m.group(1)) if m else None
+
+
+def _parse_building_area(area_text: str) -> float | None:
+    # "建物266.61㎡ / 土地 215.92㎡" または "専有 57.35㎡"
+    m = re.search(r"建物\s*(\d+(?:\.\d+)?)", area_text)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"専有\s*(\d+(?:\.\d+)?)", area_text)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _parse_land_area(area_text: str) -> float | None:
+    m = re.search(r"土地\s*(\d+(?:\.\d+)?)", area_text)
+    return float(m.group(1)) if m else None
 
 
 def _extract_prefecture(location: str) -> str:
